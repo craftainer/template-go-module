@@ -10,10 +10,9 @@
 # wants a template-owned path gone for good should move its pattern to
 # "ignore" in a template release rather than deleting the file locally.
 #
-# This is template-base's own manifest, classifying the generic subset it
-# ships, and it is itself "merge" tier: a repo that's both an instance of
-# template-base and its own template for further instances (e.g.
-# template-fastapi) edits this file directly, covering its own (larger)
+# This started as template-base's own manifest and is itself "merge" tier:
+# template-go-module is both an instance of template-base and its own
+# template for further instances, so it edits this file directly, covering its own (larger)
 # tracked-file set, and resolves base's additions by hand -- see that repo's
 # docs/TEMPLATE.md.
 #
@@ -88,14 +87,32 @@ replace:
   - docs/plans/README.md
   - docs/plans/template.md
 
+  # template-go-module's own layer on top of base: the toolchain and gate-tool
+  # installer and the post-create download. Both are instance-agnostic, so
+  # fixes reach every module through a sync. Listed one by one, not as base's
+  # `*.sh` globs: an instance's own extra hook scripts go in its
+  # template-sync-manifest.local.yml.
+  - scripts/develop.d/10-go.sh
+  - scripts/post-create.d/10-go-download.sh
+  # The release contract (see docs/TEMPLATE.md): the Makefile and its helpers
+  # carry no per-module content (the module path comes from go.mod), so fixes
+  # reach every module through a sync. Listed one by one for the same reason.
+  - Makefile
+  - scripts/module-info.sh
+  - scripts/go-coverage.sh
+  - scripts/check-module-path.sh
+  - scripts/release-check.sh
+  - scripts/release-verify-published.sh
+  - scripts/test_release_contract.py
+  # Stopgap for template-base's verify-published job, which a Go module
+  # cannot trigger (no *_PUBLISH variable). When template-base gains a Go
+  # opt-in, delete the file and keep this line as a tombstone so a sync
+  # removes it from every instance.
+  - .github/workflows/verify-published.yml
+
 ignore:
   # Each instance chooses its own license and copyright holder.
   - LICENSE
-
-  # The release-artifact contract (see docs/TEMPLATE.md's "Release: a
-  # Makefile contract" section) is the whole point that this differs per
-  # instance -- template-owned in shape only, never in content.
-  - Makefile
 
   # Product/domain knowledge and working plans: instance-owned from the
   # moment it's instantiated.
@@ -115,8 +132,15 @@ ignore:
   # points"): an instance's own compose fragment and the scripts it drops
   # into the two hook directories.
   - .devcontainer/compose.instance.yml
-  - scripts/develop.d/*.sh
-  - scripts/post-create.d/*.sh
+  # (develop.d/*.sh and post-create.d/*.sh are not globbed here: this
+  # template ships a script in each, classified `replace` above.)
+
+  # The module scaffold: an instance renames the module, owns its
+  # dependencies, code and tests, so none of it can be synced. go.sum is
+  # derived from go.mod, and a 3-way merge of it is unreliable.
+  - go.mod
+  - go.sum
+  - "*.go"
 
   # An instance's own extra "ignore" patterns for paths this manifest can't
   # know about (see docs/TEMPLATE.md's "Template sync" section).
@@ -143,6 +167,9 @@ merge:
   # [[allowlists]] entries are each instance's own (no include mechanism
   # to split them), so a three-way merge, like .pre-commit-config.yaml.
   - .gitleaks.toml
+  # The golangci-lint config: the linter set is the template's, an instance
+  # adds its own exclusions and settings, so a three-way merge.
+  - .golangci.yml
   - .mcp.json
   - .gitignore
   - scripts/README.md

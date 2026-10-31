@@ -40,8 +40,10 @@ artifact on top of the shape described here.
   an instance hook directory (`develop.d/`, `post-create.d/`); see
   `scripts/README.md` and "Instance extension points" below.
 - `Makefile` — the release contract `release.yml` drives
-  (`build`/`sbom`/`release-assets`/`publish`), each a documented no-op
-  here — see "Release: a Makefile contract" below.
+  (`build`/`sbom`/`release-assets`/`publish`/`publish-packages`/
+  `verify-published`/`release-check`); here it archives and scans the Go
+  module's source and checks the proxy — see "Release: a Makefile contract"
+  and "Go module template notes" below.
 - `.pre-commit-config.yaml` — git hooks, run by `prek` or `pre-commit`;
   language-agnostic hooks only.
 - `CLAUDE.md` — the AI-assisted coding workflow Claude Code follows in
@@ -554,3 +556,116 @@ repository follows this rule; keep new ones held to the same bar.
   `.devcontainer/`.
 - Assume a language runtime, backing service, or release artifact exists
   in this template — every one of those is instance-owned.
+
+## Go module template notes
+
+`template-go-module` extends `template-base` for a publishable Go library
+module (the first instance is `lib-operator-go`). The sections above still
+apply; these are the module-specific additions.
+
+- **Module scaffold (instance-owned).** `go.mod`, `go.sum` and every `*.go`
+  file are `ignore` tier. The template ships one sample package, `greet/`,
+  as the smallest code that passes every gate; replace it. An instance
+  renames the module in `go.mod` and in the sample test's import path to
+  `github.com/<owner>/<repo>` (the repository's own URL: for the
+  `craftainer-labs` organization, `github.com/craftainer-labs/lib-operator-go`),
+  and lists directories that hold no `.go` file (`config/`, `testdata/`
+  fixtures, ...) under `ignore:` in `.github/template-sync-manifest.local.yml`.
+  Libraries live in the module root or in plain subdirectories; the
+  template adds no `pkg/` or `internal/` convention.
+- **Template-owned tooling (`replace`).** The `Makefile`, `scripts/module-info.sh`,
+  `go-coverage.sh`, `check-module-path.sh`, `release-*.sh`,
+  `test_release_contract.py`, `scripts/develop.d/10-go.sh`,
+  `scripts/post-create.d/10-go-download.sh` and the `verify-published.yml`
+  workflow. Don't edit them in a module; change them here and release a new
+  tag. `.pre-commit-config.yaml`, `.golangci.yml`, `.gitignore`,
+  `.github/renovate.json`, `README.md` and the docs are `merge` tier.
+- **Toolchain.** `scripts/develop.d/10-go.sh` installs Go from the
+  `go.dev` tarball (version `GO_VERSION`, checked against the SHA-256 that
+  go.dev's download index lists for it), `golangci-lint` v2 (checked against
+  the release's checksums file) and `govulncheck` (built from the pinned
+  module version; the module proxy and checksum database verify the source).
+  The base `Dockerfile` is `replace` tier, so the pins live in this hook as
+  `# renovate:`-annotated variables rather than as Dockerfile `ARG`s.
+  `GO_VERSION` and go.mod's `toolchain` line are the same version and move
+  in one Renovate group ("go toolchain", not automerged); go.mod's `go` line
+  is the minimum Go a consumer needs and is raised by hand only when the code
+  needs a newer language feature. A bare runner's Go follows the `toolchain`
+  line by itself (`GOTOOLCHAIN=auto`), so `make build` needs no setup step.
+- **Checks.** Run through `prek` like every other check:
+
+  | Hook | Command | Stage |
+  |---|---|---|
+  | `golangci-fmt` | `golangci-lint fmt --diff` (gofmt, goimports) | commit |
+  | `golangci-lint` | `golangci-lint run` (`.golangci.yml`, v2) | commit |
+  | `go-mod-tidy` | `go mod tidy -diff` | push |
+  | `go-test-coverage` | `scripts/go-coverage.sh`: `go test -race` with `-coverpkg=./...`, then the gate | push |
+  | `govulncheck` | `govulncheck ./...` (online; fails for a vulnerability the code reaches) | push |
+  | `osv-scanner` | `go.mod` against osv.dev (every dependency, reachable or not) | manual |
+  | `release-contract-tests` | `scripts/test_release_contract.py` | commit |
+
+  `prek run --all-files --hook-stage manual` runs all of them. The race
+  detector needs cgo, so the devcontainer installs a C compiler.
+- **Coverage gate.** `scripts/go-coverage.sh` fails below `COVERAGE_MIN`
+  percent of statements (default 100, as in the Rust template). It counts
+  every package (`-coverpkg=./...`), so a package without tests shows as 0%
+  instead of vanishing from the total. Lower it for a module that has
+  generated code or a `main` package by setting `COVERAGE_MIN` in the hook's
+  environment, not by excluding files silently; the gate prints every
+  function below 100% when it fails.
+- **Release: the tag is the release.** The version lives only in the git tag
+  `release.yml` computes; there is no version in any file. `make build`
+  compiles every package and archives the source at the release commit
+  (`dist/<name>-<version>-source.tar.gz`); `make sbom` runs Syft over it
+  (SPDX JSON); both go on the GitHub release. `make publish` and
+  `make publish-packages` are no-ops: pushing the tag is the publish, and the
+  proxy fetches it on first request. No `*_PUBLISH` variable applies, and
+  none is needed.
+- **`make release-check`** runs in the devcontainer before the release:
+  the `/vN` guard, then `go build ./...`, `go mod verify` and
+  `go mod tidy -diff`.
+- **The `/vN` guard.** Go resolves a major version of 2 or more only through
+  a module path that ends in `/vN`
+  ([Go modules reference](https://go.dev/ref/mod#major-version-suffixes)). A
+  `v2.0.0` tag on a module still named `github.com/acme/lib` can't be fetched
+  as v2, and the tag can't be withdrawn from the proxy. So `release-check`
+  fails a release with major >= 2 whose `go.mod` path doesn't end in exactly
+  `/v<major>`, and a v0 or v1 release whose path has any `/vN` suffix. To cut
+  a v2: change `module` to `.../v2`, update the module's own import paths,
+  merge, then release.
+- **`make verify-published`** asks `proxy.golang.org` for
+  `/<module>/@v/<tag>.info` (module path case-encoded) and retries with
+  exponential backoff (5 s doubling to 60 s, 8 attempts, about 4.5 minutes;
+  `VERIFY_ATTEMPTS` and `VERIFY_SLEEP` tune it) while the answer is 404,
+  410, 429 or 5xx; the first request also makes the proxy fetch and cache
+  the tag. It fails if the version never appears. The module must be public:
+  the public proxy can't fetch a private repository, which is why
+  `verify-published.yml` skips one (consumers of a private module set
+  `GOPRIVATE`). Run it by hand with
+  `make verify-published RELEASE_TAG=v1.2.3`.
+- **Why a separate, manual workflow.** `release.yml` runs base's
+  `verify-published` job only when a `*_PUBLISH` variable is set, and a Go
+  module has none. `.github/workflows/verify-published.yml` therefore runs the
+  same target, dispatched by hand right after each release:
+  `gh workflow run verify-published.yml -f tag=vX.Y.Z`. It is not automatic:
+  `workflow_run` is flagged by zizmor (dangerous-triggers) and, per "Checks"
+  above, audits are not suppressed; `release: published` does not start
+  workflows for a release created with `GITHUB_TOKEN`; and `workflow_call`
+  needs a change to the base-owned `release.yml`. When template-base can opt a
+  Go module in (NX6), the check moves into the release as an in-workflow job;
+  this file is then deleted and kept as a tombstone line in this template's
+  sync manifest, so a sync removes it from every module.
+- **Retracting a bad release.** A version on the proxy can't be deleted:
+  the proxy and the checksum database keep it, and deleting the tag or the
+  GitHub release changes nothing for those who already resolved it. Add a
+  [`retract` directive](https://go.dev/ref/mod#go-mod-file-retract) to
+  `go.mod` and release a new patch version containing it: `retract v1.2.3 //
+  broken: panics on empty input` (a range `[v1.2.0, v1.2.3]` also works).
+  `go get` and `go list -m -u` then warn about the retracted version and
+  skip it when picking the latest, the new version is what `@latest`
+  resolves to, and the retracted one stays fetchable by exact version. Never
+  re-tag the same version at another commit: the checksum database has the
+  first one, and consumers get a security error.
+- **Syncing.** The template follows `template-base`; a module follows this
+  template. `.github/template-sync-state.json` in a new module must name this
+  repository and the tag it was created at (see the root `README.md`).

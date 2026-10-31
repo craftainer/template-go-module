@@ -1,58 +1,77 @@
-# The release contract release.yml drives -- see docs/TEMPLATE.md's
-# "Release: a Makefile contract" section. This template itself ships no
-# artifact, so every target is a documented no-op; an instance reimplements
-# each target for its own artifact type (an OCI image, a package, a chart,
-# ...) without needing to touch release.yml.
+# template-go-module's implementation of template-base's release contract
+# (docs/TEMPLATE.md, "Release: a Makefile contract"). release.yml sets
+# RELEASE_VERSION / RELEASE_TAG / RELEASE_ARCH. A Go module is source, built
+# once on one arch. The git tag IS the release: there is nothing to upload,
+# so publish and publish-packages are no-ops, and verify-published asks
+# proxy.golang.org whether the tag resolves.
 
 .PHONY: release-arches build sbom release-assets publish publish-packages verify-published release-check finalize
 
-# Prints (only) a JSON array of the arches to build on, once, first. Each
-# arch then runs build/sbom/release-assets/publish natively on its own runner.
+# Module name (go.mod's `module` path without /vN) and the release version.
+# Looked up lazily, once, on first use, so `release-arches` never reads go.mod.
+MODULE_INFO := scripts/module-info.sh
+NAME = $(eval NAME := $$(shell $(MODULE_INFO) name))$(NAME)
+ASSET = dist/$(NAME)-$(RELEASE_VERSION)
+REQUIRE_VERSION = $(if $(RELEASE_VERSION),,$(error RELEASE_VERSION is not set))
+
+# renovate: datasource=docker depName=anchore/syft
+SYFT_VERSION := v1.52.0
+
 release-arches:
 	@echo '["amd64"]'
 
+# Compiles every package (a compile error fails the release before anything is
+# tagged public) and archives the source at the commit being released. The
+# runner's Go switches to go.mod's `toolchain` version by itself (GOTOOLCHAIN=auto).
 build:
-	@echo "template-base ships no artifact -- nothing to build."
+	$(REQUIRE_VERSION)
+	go build ./...
+	rm -rf dist
+	mkdir -p dist
+	git archive --format=tar.gz --prefix=$(NAME)-$(RELEASE_VERSION)/ -o $(ASSET)-source.tar.gz HEAD
 
+# Syft over the archived source: go.mod and go.sum list the dependencies the
+# tag resolves to.
 sbom:
-	@echo "template-base ships no artifact -- nothing to scan."
+	$(REQUIRE_VERSION)
+	rm -rf dist/.sbom-src
+	mkdir -p dist/.sbom-src
+	tar -xzf $(ASSET)-source.tar.gz -C dist/.sbom-src --strip-components=1
+	docker run --rm -u "$$(id -u):$$(id -g)" --tmpfs /tmp:rw,mode=1777 -e HOME=/tmp -v "$(CURDIR)/dist:/dist" \
+		anchore/syft:$(SYFT_VERSION) "dir:/dist/.sbom-src" \
+		--source-name $(NAME) --source-version $(RELEASE_VERSION) -o "spdx-json=/$(ASSET).spdx.json"
+	rm -rf dist/.sbom-src
 
 release-assets:
-	@mkdir -p dist
+	$(REQUIRE_VERSION)
+	@set -e; for f in '$(ASSET)-source.tar.gz' '$(ASSET).spdx.json'; do \
+		test -f "$$f" || { echo "missing release asset: $$f" >&2; exit 1; }; \
+	done; ls dist
 
-# Per arch: image registries only (a package must not be published here --
-# it would run once per arch; use publish-packages).
+# Per arch, image registries only: this template ships no image.
 publish:
-	@echo "template-base ships no artifact -- nothing to publish."
+	@echo "Go module -- no image to publish (the git tag is the release)."
 
-# Once, after every arch leg, and only when the instance sets PYPI_PUBLISH,
-# NPM_PUBLISH or CARGO_PUBLISH: PyPI / npm / crates.io. dist/ holds every
-# arch leg's files.
-# This default must not silently skip a configured publish: an instance that
-# sets a *_PUBLISH variable but still uploads from `publish` would otherwise
-# release without its package.
+# A Go module is published by its git tag, which release.yml creates with the
+# GitHub release; the proxy fetches it on first request. Nothing to upload,
+# and no *_PUBLISH variable applies.
 publish-packages:
-	@set -e; \
-	for v in PYPI_PUBLISH NPM_PUBLISH CARGO_PUBLISH; do \
-	  if [ -n "$$(printenv $$v)" ]; then \
-	    echo "error: this instance sets $$v but its Makefile doesn't implement publish-packages; move the package upload from publish into publish-packages (see docs/TEMPLATE.md)" >&2; \
-	    exit 1; \
-	  fi; \
-	done; \
-	echo "template-base ships no package -- nothing to publish."
+	@echo "Go module -- the git tag is the release, nothing to upload."
 
-# Once, after publish-packages succeeded, and only when the instance sets
-# PYPI_PUBLISH, NPM_PUBLISH or CARGO_PUBLISH: check the published release
-# from the registry (e.g. install it). A no-op here on purpose: there is
-# nothing to verify unless an instance implements it.
+# Dispatched by hand after each release (.github/workflows/verify-published.yml,
+# a stopgap until template-base can opt this contract target in), or locally:
+#   make verify-published RELEASE_TAG=v1.2.3
+# Polls proxy.golang.org with backoff. See scripts/release-verify-published.sh.
 verify-published:
-	@echo "template-base ships no package -- nothing to verify."
+	scripts/release-verify-published.sh
 
-# Runs once after every arch leg, inside the devcontainer with the stack up.
+# Runs once after the arch leg, inside the devcontainer, and gates the GitHub
+# release: the /vN module-path guard, build, go mod verify and tidy. See
+# scripts/release-check.sh.
 release-check:
-	@echo "template-base ships no artifact -- nothing to check."
+	$(REQUIRE_VERSION)
+	scripts/release-check.sh
 
-# Runs once after release-check, on the host runner (e.g. combine per-arch
-# registry tags into a multi-arch manifest list).
+# Nothing to combine: a Go module is built once.
 finalize:
-	@echo "template-base ships no artifact -- nothing to finalize."
+	@echo "Go module -- nothing to finalize."

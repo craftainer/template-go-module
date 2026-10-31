@@ -113,3 +113,7 @@ $RECYCLE.BIN/
 # Python bytecode (the scripts-tests hook runs the tests in-tree)
 __pycache__/
 *.pyc
+
+### Go ###
+# The coverage profile scripts/go-coverage.sh writes.
+coverage.out

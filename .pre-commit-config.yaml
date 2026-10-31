@@ -74,6 +74,61 @@ repos:
         pass_filenames: false
         stages: [pre-commit, manual]
 
+  # The Go gates. Tools come from scripts/develop.d/10-go.sh; the
+  # golangci-lint v2 flags (`run`, `fmt --diff`) and govulncheck's package
+  # mode were checked against each tool's docs on context7.
+  - repo: local
+    hooks:
+      - id: golangci-fmt
+        name: golangci-lint fmt --diff (gofmt, goimports)
+        entry: golangci-lint fmt --diff
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
+      - id: golangci-lint
+        name: golangci-lint run
+        entry: golangci-lint run
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
+      - id: go-mod-tidy
+        name: go.mod / go.sum are tidy
+        entry: go mod tidy -diff
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: go-test-coverage
+        name: go test -race (100% statement-coverage gate, COVERAGE_MIN)
+        entry: scripts/go-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: govulncheck
+        name: govulncheck (known vulnerabilities in reachable code)
+        # Online: reads vuln.go.dev. Fails only for a vulnerability the code
+        # actually calls; the dependency scan of go.mod is osv-scanner's.
+        entry: govulncheck ./...
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
+
+      - id: release-contract-tests
+        name: Makefile and scripts/release-* tests
+        entry: python3 -I scripts/test_release_contract.py
+        language: system
+        pass_filenames: false
+        files: ^(Makefile|scripts/(module-info|check-module-path|go-coverage|release-[a-z-]+)\.sh|scripts/test_release_contract\.py)$
+        stages: [pre-commit, manual]
+
   # Supply-chain/secret scanners (OWASP A01/A03/A04/A08 -- see
   # docs/TEMPLATE.md's "Checks"). Revs are tags, not SHAs: Renovate's
   # pre-commit manager bumps tags directly, and a SHA + "# frozen: vX"
@@ -112,4 +167,4 @@ repos:
       - id: osv-scanner
         stages: [manual]
         always_run: false
-        files: (^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lock|uv\.lock|poetry\.lock|pdm\.lock|Pipfile\.lock|pylock\.toml|Cargo\.lock|requirements[^/]*\.txt)$
+        files: (^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lock|uv\.lock|poetry\.lock|pdm\.lock|Pipfile\.lock|pylock\.toml|Cargo\.lock|go\.mod|requirements[^/]*\.txt)$
