@@ -27,7 +27,7 @@ case "${1:-}" in
     major)
         if [[ "$path" =~ /v([0-9]+)$ ]]; then echo "${BASH_REMATCH[1]}"; fi
         ;;
-    proxy-path) echo "$path" | awk '{ out = ""; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); out = out (c ~ /[A-Z]/ ? "!" tolower(c) : c) } print out }' ;;
+    proxy-path) echo "$path" | LC_ALL=C awk '{ out = ""; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); out = out (c ~ /[A-Z]/ ? "!" tolower(c) : c) } print out }' ;;
     *)
         echo "usage: $0 path|name|major|proxy-path" >&2
         exit 2
