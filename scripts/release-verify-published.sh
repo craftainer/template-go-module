@@ -25,14 +25,16 @@ attempts="${VERIFY_ATTEMPTS:-8}"
 wait_s="${VERIFY_SLEEP:-5}"
 
 mod="$(scripts/module-info.sh proxy-path)"
-url="${proxy}/${mod}/@v/${RELEASE_TAG}.info"
+# The proxy case-encodes the version too (v1.0.0-RC1 -> v1.0.0-!r!c1).
+enc_tag="$(printf '%s' "$RELEASE_TAG" | awk '{ out = ""; for (i = 1; i <= length($0); i++) { c = substr($0, i, 1); out = out (c ~ /[A-Z]/ ? "!" tolower(c) : c) } print out }')"
+url="${proxy}/${mod}/@v/${enc_tag}.info"
 body="$(mktemp)"
 trap 'rm -f "$body"' EXIT
 
 for ((i = 1; i <= attempts; i++)); do
     code="$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 "$url" || echo 000)"
     if [[ "$code" == 200 ]]; then
-        if grep -q "\"Version\": *\"${RELEASE_TAG}\"" "$body"; then
+        if grep -qF "\"Version\":\"${RELEASE_TAG}\"" "$body" || grep -qF "\"Version\": \"${RELEASE_TAG}\"" "$body"; then
             echo "OK: $url lists $RELEASE_TAG"
             exit 0
         fi
@@ -41,6 +43,13 @@ for ((i = 1; i <= attempts; i++)); do
         exit 1
     fi
     echo "attempt $i/$attempts: HTTP $code from $url"
+    case "$code" in
+        000 | 404 | 410 | 429 | 5??) ;;
+        *)
+            echo "error: HTTP $code is not retryable" >&2
+            exit 1
+            ;;
+    esac
     ((i == attempts)) && break
     sleep "$wait_s"
     wait_s=$((wait_s * 2 > 60 ? 60 : wait_s * 2))
