@@ -17,8 +17,26 @@
   HTTP 429s don't fail the image build. Local builds need no token.
 - `post-create.sh` — the devcontainer's `postCreateCommand`: git
   `safe.directory`, `prek install`, then every `post-create.d/*.sh`.
-- `develop.d/`, `post-create.d/` — instance hook directories, empty apart
-  from their own `README.md`; see `docs/TEMPLATE.md`'s "Instance extension
+- `module-info.sh` — reads the module path from `go.mod` (the one place
+  that does) and prints `path`, `name`, `major` (the `/vN` suffix's N) or
+  `proxy-path` (the path in proxy.golang.org's case encoding); the
+  Makefile and the release scripts call it.
+- `go-coverage.sh` — `go test -race` over every package with
+  `-coverpkg=./...`, failing under `COVERAGE_MIN` percent statement coverage
+  (default 100); the `go-test-coverage` hook runs it.
+- `check-module-path.sh`, `release-check.sh`,
+  `release-verify-published.sh` — the `Makefile`'s release contract
+  (`docs/TEMPLATE.md`, "Go module template notes"): `check-module-path.sh` is
+  the `/vN` guard (a major >= 2 needs a `/vN` module path, v0/v1 none),
+  `release-check.sh` adds build, `go mod verify` and a tidy check before the
+  release, and `release-verify-published.sh` polls proxy.golang.org for the
+  new tag after it. `test_release_contract.py` covers them and the
+  Makefile's no-op targets without Go, against a local stand-in for the
+  proxy.
+- `develop.d/10-go.sh`, `post-create.d/10-go-download.sh` — the pinned,
+  sha256-verified Go toolchain, golangci-lint and govulncheck install, and
+  the `go mod download` after create. `develop.d/` and `post-create.d/` are
+  the instance hook directories; see `docs/TEMPLATE.md`'s "Instance extension
   points".
 
 ## Do

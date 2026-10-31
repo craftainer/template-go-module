@@ -9,6 +9,7 @@
     "labels": ["security"]
   },
   "osvVulnerabilityAlerts": true,
+  "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
     {
       "matchUpdateTypes": ["patch", "minor"],
@@ -25,6 +26,12 @@
       "matchDepNames": ["python"],
       "matchUpdateTypes": ["minor"],
       "groupName": "python minor upgrade",
+      "automerge": false
+    },
+    {
+      "description": "The Go toolchain is pinned in scripts/develop.d/10-go.sh (GO_VERSION) and go.mod's toolchain directive, and the two must move together: one group, out of the automerged one, for manual review. go.mod's `go` directive (the minimum Go a library supports) is not in this group and Renovate does not bump it by default; raise it by hand only when the code needs a newer language feature.",
+      "matchDepNames": ["go"],
+      "groupName": "go toolchain",
       "automerge": false
     },
     {

@@ -15,6 +15,19 @@
   arch-specific runtime break (e.g. a C-extension dependency missing an
   arm64 wheel), since `checks.yml`'s test run uses `MODE=mock`
   in-process fakes for some paths rather than the built image.
+- `verify-published.yml` — manually dispatched with a `tag` input, right
+  after each `Release`: `gh workflow run verify-published.yml -f tag=vX.Y.Z`.
+  It runs `make verify-published`, which asks proxy.golang.org whether the new
+  module tag resolves, retrying with backoff. A stopgap: template-base's own
+  `verify-published` job exists only when a `PYPI_PUBLISH`, `NPM_PUBLISH` or
+  `CARGO_PUBLISH` variable is set, and a Go module publishes by tag, so none
+  applies. It is not automatic: `workflow_run` is flagged by zizmor
+  (dangerous-triggers) and not suppressed, `on: release` does not fire for a
+  release created with `GITHUB_TOKEN`, and `workflow_call` needs a change to
+  the base-owned `release.yml`. Until template-base moves the check into the
+  release as an in-workflow job, it stays manual. Needs no secret, only
+  `contents: read`, validates the tag, and skips a private repository (the
+  public proxy cannot fetch it). A failed run does not undo the release.
 - `release.yml` — manually triggered. Takes a release channel
   (`alpha`/`beta`/`rc`/`full`) and a SemVer 2 bump
   (`major`/`minor`/`patch`/`none`), computes the next tag via
