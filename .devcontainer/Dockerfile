@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1.28
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 # Single-stage build: develop (the devcontainer image). Built with the repo
 # root as context (see compose.yml). The repo-root Dockerfile is reserved for
 # an instance's own runtime image -- see docs/TEMPLATE.md's "Contents" and
 # "Instance extension points".
 
-ARG DEBIAN_VERSION=trixie
+ARG DEBIAN_VERSION=trixie@sha256:38f9e6c291f054e3c868d95a5477cbfcf76c0fa7c218dda65dc6aa3fbfe06871
 
 # renovate: datasource=github-releases depName=j178/prek
 ARG PREK_VERSION=0.5.10
