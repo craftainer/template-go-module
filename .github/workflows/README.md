@@ -53,6 +53,14 @@
   `verify-published` run, and only for an instance that sets
   `PYPI_PUBLISH`, `NPM_PUBLISH` or `CARGO_PUBLISH`. A partial registry
   failure therefore never withholds the release.
+
+  In template-go-module, which ships no image: `release.yml` has no
+  image push, registry login or image-name step and no
+  `docker/metadata-action` step. It only passes the `OCI_*` values to the
+  Makefile, whose `publish` and `finalize` targets just print a message.
+  The release `build` runs only for the arch `make release-arches` prints
+  (amd64), so it is a single leg. The "OCI registry" and "Image labels"
+  sections below describe the contract for an instance that adds an image.
 - `moderate-bug-triage.yml` / `moderate-bug-fix.yml` /
   `moderate-feature-triage.yml` / `moderate-feature-build.yml` /
   `moderate-cleanup.yml` / `moderate-setup.yml` — see "Issue moderation"
@@ -97,12 +105,9 @@ e.g. to point at self-hosted runners.
 
 ## Architecture matrix
 
-`checks.yml` runs as a two-leg matrix over `amd64`/`arm64`, both legs
-testing natively. `release.yml`'s `build` job is matrixed over whatever
-`make release-arches` prints; this template's `Makefile` prints
-`["amd64"]`, because a Go module is source, built once, so its release
-`build` is a single `amd64` leg. `ubuntu-24.04-arm` is a real
-(non-emulated) GitHub-hosted Linux arm64
+`checks.yml` and `release.yml`'s `build` job each run as a
+two-leg matrix over `amd64`/`arm64`, both legs building/testing natively
+— `ubuntu-24.04-arm` is a real (non-emulated) GitHub-hosted Linux arm64
 runner, free on this public repo and billed as ordinary Actions minutes
 on a private one. No QEMU is involved anywhere in this repo's CI; QEMU
 would only be needed to cross-build one arch on a runner that doesn't
@@ -459,19 +464,11 @@ variables/secrets, all optional:
 
 ## OCI registry
 
-This template publishes no image: its `Makefile`'s `publish` and
-`finalize` targets only print a message, so the `OCI_*` variables and
-secrets below have no effect here. `release.yml` has no registry push,
-login or image-name step of its own either; it only passes the `OCI_*`
-values to the `build` and `release` jobs' Makefile targets. The rest of
-this section is the contract for an instance that adds an image to
-`publish` and `finalize`.
-
-That instance pushes to a registry only when the `OCI_REGISTRY`
+`release.yml` only pushes to a registry when the `OCI_REGISTRY`
 repository/organization variable is set (e.g. `ghcr.io`,
-`docker.io`, or a private registry host); its targets should skip
-cleanly otherwise, so the workflow works with no registry configured at
-all. When it is set:
+`docker.io`, or a private registry host) — the push step, the login
+step, and the image-name step are all skipped otherwise, so the
+workflow works with no registry configured at all. When it is set:
 
 - `OCI_IMAGE_NAME` (variable, optional) — the image path within the
   registry, e.g. `myorg/template-fastapi`. Defaults to the repository's
@@ -488,11 +485,9 @@ all. When it is set:
 
 ## Image labels
 
-None of the workflows here computes image labels (no
-`docker/metadata-action` step), and this template builds no image. An
-instance whose `build`/`publish` targets produce one should give both
-copies (the OCI tarball and, if configured, the registry push) the same
-label set:
+Both copies of the published image (the OCI tarball and, if configured,
+the registry push) carry the same label set, computed once by
+`docker/metadata-action`:
 
 - Standard `org.opencontainers.image.title` / `.description` / `.url` /
   `.source` / `.revision` (`github.sha`) / `.created` / `.version`,
