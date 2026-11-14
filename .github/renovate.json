@@ -97,6 +97,16 @@
       ]
     },
     {
+      "description": "The `# renovate:` comment-annotated tool versions in the release-contract Makefile (SYFT_VERSION, the anchore/syft image tag `make sbom` runs).",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s*\\n[A-Z0-9_]+_VERSION\\s*:?=\\s*(?<currentValue>\\S+)"
+      ]
+    },
+    {
       "customType": "regex",
       "managerFilePatterns": [
         "/^\\.github/workflows/.*\\.ya?ml$/"

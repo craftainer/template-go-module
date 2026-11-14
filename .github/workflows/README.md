@@ -53,6 +53,14 @@
   `verify-published` run, and only for an instance that sets
   `PYPI_PUBLISH`, `NPM_PUBLISH` or `CARGO_PUBLISH`. A partial registry
   failure therefore never withholds the release.
+
+  In template-go-module, which ships no image: `release.yml` has no
+  image push, registry login or image-name step and no
+  `docker/metadata-action` step. It only passes the `OCI_*` values to the
+  Makefile, whose `publish` and `finalize` targets just print a message.
+  The release `build` runs only for the arch `make release-arches` prints
+  (amd64), so it is a single leg. The "OCI registry" and "Image labels"
+  sections below describe the contract for an instance that adds an image.
 - `moderate-bug-triage.yml` / `moderate-bug-fix.yml` /
   `moderate-feature-triage.yml` / `moderate-feature-build.yml` /
   `moderate-cleanup.yml` / `moderate-setup.yml` — see "Issue moderation"
