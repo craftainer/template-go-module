@@ -15,7 +15,7 @@ ASSET = dist/$(NAME)-$(RELEASE_VERSION)
 REQUIRE_VERSION = $(if $(RELEASE_VERSION),,$(error RELEASE_VERSION is not set))
 
 # renovate: datasource=docker depName=anchore/syft
-SYFT_VERSION := v1.52.0
+SYFT_VERSION := v1.57.1
 
 release-arches:
 	@echo '["amd64"]'
